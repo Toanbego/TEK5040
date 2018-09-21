@@ -27,6 +27,7 @@ def preprocess(image, segmentation):
 
     image = tf.image.resize_images(image, [256, 256])
     segmentation = tf.image.resize_images(segmentation, [256, 256], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+    # tf.image.
     image = tf.to_float(image) / 255
     segmentation = tf.to_int64(segmentation)
 
@@ -93,9 +94,10 @@ def improved_model(img, seg):
     :return:
     """
     # First layer
-    x = tf.layers.conv2d(img, 32, kernel_size=3, strides=(2, 2), padding='same',
+    x = tf.layers.conv2d(img, 16, kernel_size=3, strides=(2, 2), padding='same',
                          activation=tf.nn.relu)
-
+    x = tf.layers.conv2d(x, 32, kernel_size=3, strides=(2, 2), padding='same',
+                       activation=tf.nn.relu)
     # Down sample
     x = tf.layers.conv2d(x, 64, kernel_size=3, strides=(2, 2), padding='same',
                          activation=tf.nn.relu)
@@ -103,7 +105,6 @@ def improved_model(img, seg):
                          activation=tf.nn.relu)
 
     # Up sample
-
     x = tf.layers.conv2d_transpose(x, 32, kernel_size=3, strides=(2, 2), padding='same',
                                    activation=tf.nn.relu)
     x = tf.layers.conv2d_transpose(x, 24, kernel_size=3, strides=(2, 2), padding='same',
@@ -112,7 +113,6 @@ def improved_model(img, seg):
                          activation=tf.nn.sigmoid)
 
     x = tf.image.resize_images(x, [256, 256])
-
 
     # Cross_entropy with sigmoid (maximumllikelihood for bernoulliooierio random variabler)
     cross = tf.to_float(seg) * tf.log(1e-3 + x) + (1 - tf.to_float(seg)) * tf.log((1-x) + 1e-3)
@@ -123,23 +123,16 @@ def improved_model(img, seg):
 
 
 def model(img, seg):
-    """
+    x = tf.layers.conv2d(img, 32, kernel_size=5, strides=(2, 2), padding='same', activation=tf.nn.relu)
+    x = tf.layers.conv2d(x, 64, kernel_size=5, strides=(2, 2), padding='same', activation=tf.nn.relu)
 
-    :param img:
-    :param seg:
-    :return:
-    """
-    x = tf.layers.conv2d(img, 128, kernel_size=5, strides=(2, 2), padding='same', activation=tf.nn.relu)
-    x = tf.layers.conv2d(x, 64, kernel_size=5, strides=(2, 2), padding='same', activation=tf.nn.relu)
-    x = tf.layers.conv2d(x, 32, kernel_size=5, strides=(2, 2), padding='same', activation=tf.nn.relu)
-    x = tf.layers.conv2d(x, 64, kernel_size=5, strides=(2, 2), padding='same', activation=tf.nn.relu)
-    x = tf.layers.conv2d(x, 128, kernel_size=5, strides=(2, 2), padding='same', activation=tf.nn.relu)
-    x = tf.layers.conv2d(x, 1, kernel_size=1, padding='same')  # Fully connected?
+    x = tf.layers.conv2d(x, 1, kernel_size=1, padding='same')
     # x = tf.layers.flatten(x)
 
-    x = tf.image.resize_images(x, [512, 512])
+    x = tf.image.resize_images(x, [256, 256])
 
-
+    loss = tf.losses.mean_squared_error(seg, x)
+    loss = tf.reduce_mean(loss)
     return x, loss
 
 
@@ -175,12 +168,22 @@ def create_tensorboard_summaries(img, img_val, seg_val, logits_val, logits, seg,
     tf.summary.scalar('F_measure', F1)
 
     # Tensorboard for images
-    # tf.summary.image('Image Validation Label', seg_val, max_outputs=1)
-    tf.summary.image('Image - Validation', img_val, max_outputs=1)
-    tf.summary.image('Image - seg', tf.cast(seg, dtype=tf.float32), max_outputs=1)
-    tf.summary.image('Image - Validation_pred', logits_val, max_outputs=1)
+    zeros = tf.zeros(tf.shape(logits))
+
+    # Traning images
+    superimposed = img + tf.concat(axis=3, values=(zeros, logits, zeros))
     tf.summary.image('Image - Training', img, max_outputs=1)
     tf.summary.image('Image - Training_pred', logits, max_outputs=1)
+    tf.summary.image('Image - Training_label', tf.cast(seg, dtype=tf.float32), max_outputs=1)
+    tf.summary.image('Image - Training_overlay', superimposed, max_outputs=1)
+
+    # Validation image
+    superimposed_ = img_val + tf.concat(axis=3, values=(zeros, logits, zeros))
+    tf.summary.image('Image - Validation', img_val, max_outputs=1)
+    tf.summary.image('Image - Validation_pred', logits_val, max_outputs=1)
+    tf.summary.image('Image - Validation_label', tf.cast(seg_val, dtype=tf.float32), max_outputs=1)
+    tf.summary.image('Image - Valdiation_overlay', superimposed_, max_outputs=1)
+
 
 
 def main(_):
@@ -211,7 +214,7 @@ def main(_):
 
     # Create an optimizer
     with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-        train_op = tf.train.AdamOptimizer(0.001).minimize(
+        train_op = tf.train.AdamOptimizer(0.003).minimize(
             loss,
             global_step=step)
 
