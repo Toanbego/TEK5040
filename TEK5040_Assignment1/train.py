@@ -4,8 +4,9 @@ import glob
 import os
 import time
 import argparse
-
+import random
 import tensorflow as tf
+import numpy as np
 
 
 def generator_for_filenames(*filenames):
@@ -24,21 +25,53 @@ def preprocess(image, segmentation):
     processesing on the images.
     """
     # Set images size to a constant
+    height, width = 256, 256
 
-    image = tf.image.resize_images(image, [256, 256])
-    segmentation = tf.image.resize_images(segmentation, [256, 256], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+    image = tf.image.resize_images(image, [height, width])
+    segmentation = tf.image.resize_images(segmentation, [height, width], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
 
     image = tf.to_float(image) / 255
     segmentation = tf.to_int64(segmentation)
 
+
     # Do some processing
 
     # Add random colours
-    image = tf.image.random_hue(image, 0.25)
-    #
-    # # Random flips
-    # image = tf.image.random_flip_up_down(image)
+    # image = tf.image.random_hue(image, 0.25)
 
+    # Random flips
+    image = tf.image.random_flip_up_down(image, seed=2)
+    segmentation = tf.image.random_flip_up_down(segmentation, seed=2)
+
+    # Random cropping
+    # Create bounding box
+    # boxes = [0, 0, height - 1, width - 1]
+    # # Normalize box
+    # box = np.ones([1, 1, 4])
+    # for i in range(4):
+    #     box[:, :, i] = boxes[i] / height
+
+    # # Create tensor
+    # bounding_box = tf.convert_to_tensor(box, np.float32)
+    # # Sample a random crop
+    #
+    # start, size, bbox_for_draw = tf.image.sample_distorted_bounding_box(
+    #     tf.shape(image),
+    #     bounding_boxes=bounding_box,
+    #     min_object_covered=0.1,
+    #     aspect_ratio_range=[0.75, 1.33],
+    #     area_range=[0.05, 1.0],
+    #     max_attempts=100,
+    #     use_image_if_no_bounding_boxes=True)
+    #
+    # # Employ the bounding box to distort the image.
+    # image = tf.slice(image, start, size)
+    # image = tf.image.resize_images(image, [height, width])
+    # image.set_shape([height, width, 3])
+    # # Do the same for the label
+    # segmentation = tf.slice(segmentation, start, size)
+    # segmentation = tf.image.resize_images(segmentation, [height, width])
+    # segmentation.set_shape([height, width, 1])
 
     return image, segmentation
 
@@ -104,26 +137,27 @@ def improved_model(args, img, seg, training):
     """
 
     if args.regularization == True:
-
+        print("Use l2")
         regularizer = tf.contrib.layers.l2_regularizer(0.001)
+
         # Downsample
-        x = tf.layers.conv2d(img, 16, kernel_size=5, strides=(2, 2), padding='same',
-                             activation=tf.nn.relu, kernel_regularizer=regularizer)
-        x = tf.layers.conv2d(x, 16, kernel_size=5, strides=(2, 2), padding='same',
-                           activation=tf.nn.relu, kernel_regularizer=regularizer)
-        x = tf.layers.conv2d(x, 32, kernel_size=5, strides=(2, 2), padding='same',
+        x = tf.layers.conv2d(img, 32, kernel_size=5, strides=(2, 2), padding='same',
                              activation=tf.nn.relu, kernel_regularizer=regularizer)
         x = tf.layers.conv2d(x, 64, kernel_size=5, strides=(2, 2), padding='same',
-                             activation=tf.nn.relu, kernel_regularizer=regularizer)
+                           activation=tf.nn.relu, kernel_regularizer=regularizer)
         x = tf.layers.conv2d(x, 128, kernel_size=5, strides=(2, 2), padding='same',
+                             activation=tf.nn.relu, kernel_regularizer=regularizer)
+        x = tf.layers.conv2d(x, 256, kernel_size=5, strides=(2, 2), padding='same',
+                             activation=tf.nn.relu, kernel_regularizer=regularizer)
+        x = tf.layers.conv2d(x, 256, kernel_size=5, strides=(2, 2), padding='same',
                              activation=tf.nn.relu, kernel_regularizer=regularizer)
 
         # Upsample
+        x = tf.layers.conv2d_transpose(x, 128, kernel_size=3, strides=(2, 2), padding='same',
+                                       activation=tf.nn.relu, kernel_regularizer=regularizer)
         x = tf.layers.conv2d_transpose(x, 64, kernel_size=3, strides=(2, 2), padding='same',
                                        activation=tf.nn.relu, kernel_regularizer=regularizer)
-        x = tf.layers.conv2d_transpose(x, 32, kernel_size=3, strides=(2, 2), padding='same',
-                                       activation=tf.nn.relu, kernel_regularizer=regularizer)
-        x = tf.layers.conv2d_transpose(x, 16, kernel_size=1, strides=(1, 1), padding='same',
+        x = tf.layers.conv2d_transpose(x, 32, kernel_size=1, strides=(1, 1), padding='same',
                                        activation=tf.nn.relu, kernel_regularizer=regularizer)
 
     elif args.regularization != True:
@@ -156,22 +190,25 @@ def improved_model(args, img, seg, training):
     x = tf.layers.conv2d(x, 1, kernel_size=1, padding='same',
                          activation=tf.nn.sigmoid)
 
+
     # Resize image
     x = tf.image.resize_images(x, [256, 256])
 
     # Cross_entropy with sigmoid (maximumllikelihood for bernoulliooierio random variabler)
     cross = tf.to_float(seg) * tf.log(1e-3 + x) + (1 - tf.to_float(seg)) * tf.log((1-x) + 1e-3)
-    loss = tf.reduce_mean(-cross + tf.losses.get_regularization_loss())
 
-    return x, loss
+    # Reduce mean for losses
+    reg = tf.reduce_mean(tf.losses.get_regularization_loss())
+    cross = tf.reduce_mean(-cross)
+    cost = tf.reduce_mean(cross + reg)
 
+    return x, cost
 
 def model(img, seg):
     x = tf.layers.conv2d(img, 32, kernel_size=5, strides=(2, 2), padding='same', activation=tf.nn.relu)
     x = tf.layers.conv2d(x, 64, kernel_size=5, strides=(2, 2), padding='same', activation=tf.nn.relu)
 
     x = tf.layers.conv2d(x, 1, kernel_size=1, padding='same')
-    # x = tf.layers.flatten(x)
 
     x = tf.image.resize_images(x, [256, 256])
 
@@ -254,6 +291,18 @@ def parse_arguments():
     return args
 
 
+def create_variable(name, shape, weight_decay=None, loss=tf.nn.l2_loss):
+    with tf.device("/cpu:0"):
+        var = tf.get_variable(name, dtype=tf.float32, shape=shape,
+                              initializer=tf.truncated_normal_initializer(stddev=0.05))
+
+    if weight_decay:
+        wd = loss(var) * weight_decay
+        tf.add_to_collection("weight_decay", wd)
+
+    return var
+
+
 def main(_):
 
     # Parse arguments
@@ -272,6 +321,8 @@ def main(_):
         image_names[-3:],
         segmentation_names[-3:],
         batch_size=8)
+
+
 
     if args.model == 'improved':
         # Create the model
@@ -296,7 +347,7 @@ def main(_):
 
     # Create an optimizer
     with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-        train_op = tf.train.AdamOptimizer(0.001).minimize(
+        train_op = tf.train.AdamOptimizer(0.0001).minimize(
             loss,
             global_step=step)
 
