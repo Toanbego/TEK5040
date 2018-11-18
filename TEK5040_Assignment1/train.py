@@ -33,17 +33,21 @@ def preprocess(image, segmentation):
     image = tf.to_float(image) / 255
     segmentation = tf.to_int64(segmentation)
 
+    # Data augmentation
 
-    # Do some processing
-
-    # Add random colours
+    # Add random colours - uncomment snippet below to use
+    # ===============================================================
     # image = tf.image.random_hue(image, 0.25)
+    # ===============================================================
 
-    # Random flips
-    image = tf.image.random_flip_up_down(image, seed=2)
-    segmentation = tf.image.random_flip_up_down(segmentation, seed=2)
+    # Random flips - uncomment snippet below to use
+    # ===============================================================
+    # image = tf.image.random_flip_up_down(image, seed=2)
+    # segmentation = tf.image.random_flip_up_down(segmentation, seed=2)
+    # ================================================================
 
-    # Random cropping
+    # Random cropping - uncomment snippet below to use
+    # ===============================================================
     # Create bounding box
     # boxes = [0, 0, height - 1, width - 1]
     # # Normalize box
@@ -72,6 +76,7 @@ def preprocess(image, segmentation):
     # segmentation = tf.slice(segmentation, start, size)
     # segmentation = tf.image.resize_images(segmentation, [height, width])
     # segmentation.set_shape([height, width, 1])
+    # ===============================================================
 
     return image, segmentation
 
@@ -131,14 +136,14 @@ def improved_model(args, img, seg, training):
 
     Uses cross_entropy as loss functions since it handles pixels on an
     individual level.
-    :param img:
-    :param seg:
-    :return:
+
+    If regularization is set to True, model will use L2 regularization on the kernels.
+    There is also a 25% dropout rate.
     """
 
     if args.regularization == True:
         print("Use l2")
-        regularizer = tf.contrib.layers.l2_regularizer(0.001)
+        regularizer = tf.contrib.layers.l2_regularizer(0.0001)
 
         # Downsample
         x = tf.layers.conv2d(img, 32, kernel_size=5, strides=(2, 2), padding='same',
@@ -194,7 +199,7 @@ def improved_model(args, img, seg, training):
     # Resize image
     x = tf.image.resize_images(x, [256, 256])
 
-    # Cross_entropy with sigmoid (maximumllikelihood for bernoulliooierio random variabler)
+    # Cross_entropy with sigmoid (maximum likelihood)
     cross = tf.to_float(seg) * tf.log(1e-3 + x) + (1 - tf.to_float(seg)) * tf.log((1-x) + 1e-3)
 
     # Reduce mean for losses
@@ -203,6 +208,7 @@ def improved_model(args, img, seg, training):
     cost = tf.reduce_mean(cross + reg)
 
     return x, cost
+
 
 def model(img, seg):
     x = tf.layers.conv2d(img, 32, kernel_size=5, strides=(2, 2), padding='same', activation=tf.nn.relu)
@@ -220,16 +226,6 @@ def model(img, seg):
 def create_tensorboard_summaries(img, img_val, seg_val, logits_val, logits, seg, loss, loss_val, step):
     """
     Define metrics for tensorboard
-    :param img:
-    :param img_val:
-    :param seg_val:
-    :param logits_val:
-    :param logits:
-    :param seg:
-    :param loss:
-    :param loss_val:
-    :param step:
-    :return:
     """
     # Calculating metrics to calculate F1 score
     accuracy, acc = tf.metrics.accuracy(seg, logits)
@@ -347,7 +343,7 @@ def main(_):
 
     # Create an optimizer
     with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-        train_op = tf.train.AdamOptimizer(0.0001).minimize(
+        train_op = tf.train.AdamOptimizer(0.001).minimize(
             loss,
             global_step=step)
 
